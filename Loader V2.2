@@ -1,0 +1,8 @@
+local XanaxUILib = loadstring(game:HttpGet("https://pastebin.com/raw/XZz3Ytbu"))()
+local Ui = XanaxUILib:CreateWindow("Kamikaze神風 Loader")
+local Examples = Ui:CreateSection("Versions")
+
+
+Examples:CreateLabel("Please choose a version!")
+Examples:CreateButton("V1 | Very Stable Fling: no", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/Firoxus/glticher/main/v1loader"))() end)
+Examples:CreateButton("V2 | Unstable Fling: yes", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/Firoxus/glticher/main/FlingLoader"))() end)
