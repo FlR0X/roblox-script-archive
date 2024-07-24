@@ -1,0 +1,1279 @@
+local plr = game:GetService("Players").LocalPlayer
+local LocalPlayer = game:GetService("Players").LocalPlayer
+local Heartbeat = game:GetService("RunService").Heartbeat
+Heartbeat:Connect(function()
+    LocalPlayer.MaximumSimulationRadius = math.huge
+    sethiddenproperty(LocalPlayer, "SimulationRadius", math.huge)
+end)
+
+for i,v in next, game.Players.LocalPlayer.PlayerGui:GetChildren() do
+if v:IsA'ScreenGui' then
+v:Destroy()
+end
+end
+
+game.Lighting.FogEnd = 100000
+game.Lighting.FogStart = 0
+game.Lighting.ClockTime = 14
+game.Lighting.Brightness = 2
+game.Lighting.GlobalShadows = false
+
+local Notification = loadstring(game:HttpGet("https://api.irisapp.ca/Scripts/IrisBetterNotifications.lua"))()
+getgenv().IrisAd = true
+local healthHide = true --moves your head away every 3 seconds so other players dont see your health bar
+local hideHealthHide = true --if this is enabled with health hide you wont see your head disappearing, others will
+local reclaim = true --if you lost control over a part this will move your primary part to the part so you get it back
+local novoid = true --prevents parts from going under workspace.FallenPartsDestroyHeight if you control them
+local antiragdoll = true --removes instances that are usually used for ragdolling form your character
+local addPartsOnRun = false --allows u to add more parts and joints to the simulation after it started
+local discharscripts = true --disables all localScripts parented to your character before reanimation
+local R15toR6 = true --adds fake r6 parts and joints for animations if your character is r15
+local humState16 = true --enables collisions for limbs before the humanoid dies (using hum:ChangeState)
+local walkSpeed = 16 --your walkspeed (can be changed at runtime)
+local jumpPower = 50 --your jump power (can be changed at runtime)
+local allowshiftlock = true --allows the user to use shiftlock (can be changed at runtime)
+local gravity = 196.2 --how fast the characters velocity increases while falling (can be changed at runtime)
+local loadtime = game:GetService("Players").RespawnTime + 0.5 --anti respawn delay
+--methods:
+--0 - breakJoints (takes [loadtime] seconds to load)
+--1 - limbs
+--2 - limbs + anti respawn
+--3 - limbs + breakJoints after [loadtime] seconds
+--4 - remove humanoid + breakJoints
+local flingparts = { --the fling function will use the first part available for flinging from this table
+    "HumanoidRootPart"
+}
+--the fling function
+--usage: fling(target, duration, velocity)
+--target can be set to: basePart, CFrame, Vector3, character model or humanoid (flings at mouse.Hit if argument not provided)
+--duration (fling time in seconds) can be set to a number or a string convertable to a number (0.5s if not provided)
+--velocity (fling part rotation velocity) can be set to a vector3 value (Vector3.new(20000, 20000, 20000) if not provided)
+local clickfling = false --click fling mode
+--false - click fling disabled
+--0 - click fling without prediction
+--1 - with prediction if pointing at a character, otherwise not flinging
+--2 - with prediction if pointing at a character, otherwise no prediction
+local maxflingtrsp = 0.5 --max transparency of the fling part (if its above this it will be set to this)
+
+local ws, rs = game:GetService("Workspace"), game:GetService("RunService")
+local plrs, uis = game:GetService("Players"), game:GetService("UserInputService")
+local lp, gs = plrs.LocalPlayer, game:GetService("GuiService")
+local stepped, heartbeat, renderstepped = rs.Stepped, rs.Heartbeat, rs.RenderStepped
+local twait, tdelay, tspawn = task.wait, task.delay, task.spawn
+local tinsert, tfind, osclock = table.insert, table.find, os.clock
+local sin, abs, sine, clamp, mrandom = math.sin, math.abs, osclock(), math.clamp, math.random
+local cf, v3, angles = CFrame.new, Vector3.new, CFrame.Angles
+local v3_0, v3_101, v3_010, v3_h, v3_0150, cf_0 = v3(0, 0, 0), v3(1, 0, 1), v3(0, 1, 0), v3(0, 3000, 0), v3(0, 1.5, 0), cf(0, 0, 0)
+local c = lp.Character
+if not c then return end
+if not c:IsDescendantOf(ws) then return end
+local c1 = c
+c.AncestryChanged:Connect(function()
+    if c1 then
+        if c1:IsDescendantOf(ws) then
+            c = c1
+        else
+            c = nil
+        end
+    end
+end)
+local function gp(parent, name, className)
+    if typeof(parent) == "Instance" then
+        for i, v in pairs(parent:GetChildren()) do
+            if (v.Name == name) and v:IsA(className) then
+                return v
+            end
+        end
+    end
+    return nil
+end
+local rootpart = gp(c, "HumanoidRootPart", "BasePart") or gp(c, "Torso", "BasePart") or gp(c, "UpperTorso", "BasePart") or c:FindFirstChildWhichIsA("BasePart")
+if not rootpart then return end
+local head, torso = gp(c, "Head", "BasePart"), gp(c, "Torso", "BasePart") or gp(c, "UpperTorso", "BasePart")
+local hum = c:FindFirstChildOfClass("Humanoid")
+
+healthHide = healthHide and head
+hideHealthHide = healthHide and hideHealthHide
+reclaim = reclaim and (c.PrimaryPart or rootpart)
+novoid = novoid and (ws.FallenPartsDestroyHeight + 1)
+flingparts = ((type(flingparts) == "table") and flingparts) or ((type(flingparts) == "string") and {flingparts}) or {}
+hatcollide = hatcollide and (method == 0)
+R15toR6 = R15toR6 and hum and (hum.RigType == Enum.HumanoidRigType.R15)
+
+for i, v in pairs(flingparts) do
+    flingparts[i] = gp(c, v, "BasePart")
+end
+
+if (method == 0) or (method == 2) or (method == 3) then
+    lp.Character = nil
+    lp.Character = c
+end
+if method == 0 then
+    twait(plrs.RespawnTime + 0.5)
+elseif method == 3 then
+    tdelay(plrs.RespawnTime + 0.5, pcall, c.BreakJoints, c)
+elseif method == 4 then
+    if hum then
+        hum:Destroy()
+        hum = nil
+    end
+end
+if not c then return end
+
+local cam = ws.CurrentCamera
+local enumCamS, camt, camcf = Enum.CameraType.Scriptable, cam.CameraType, cam.CFrame
+local camcon0, camcon1 = nil, nil
+local function onnewcamera()
+    if camcon then 
+        camcon0:Disconnect()
+        camcon0 = nil
+    end
+    cam = ws.CurrentCamera
+    if not c then 
+        if cam.CameraType == enumCamS then
+            cam.CameraType = camt
+        end
+        return camcon1:Disconnect() 
+    end
+    camcon0 = cam.Changed:Connect(function(p)
+        if not c then
+            camcon0:Disconnect()
+            return camcon1:Disconnect()
+        end
+        if (p == "CFrame") and (cam.CFrame ~= camcf) then
+            cam.CFrame = camcf
+        elseif (p == "CameraSubject") or (p == "CameraType") then
+            local subj = cam.CameraSubject
+            if subj and subj:IsA("Humanoid") and (subj.Parent == c) and (cam.CameraType ~= enumCamS) then
+                cam.CameraType = enumCamS
+            end
+        end
+    end)
+    local subj = cam.CameraSubject
+    if subj and subj:IsA("Humanoid") and (subj.Parent == c) and (cam.CameraType ~= enumCamS) then
+        cam.CameraType = enumCamS
+    end
+    cam.CFrame = camcf
+end
+camcon1 = ws:GetPropertyChangedSignal("CurrentCamera"):Connect(onnewcamera)
+onnewcamera()
+if discharscripts then
+    for i, v in pairs(c:GetChildren()) do
+        if v:IsA("LocalScript") then
+            v.Disabled = true
+        end
+    end
+end
+
+if humState16 and hum and (hum.Health > 0) then
+    hum:ChangeState(16)
+end
+local keepneck = head and torso and ((method == 1) or (method == 2) or (method == 3))
+local joints, cframes, lastpositions = {}, {}, {}
+local function ondes(v)
+    if antiragdoll and v:IsA("HingeConstraint") or v:IsA("BallSocketConstraint") then
+        v:Destroy()
+    elseif addPartsOnRun then
+        if v:IsA("JointInstance") then
+            tinsert(joints, {
+                Name = v.Name,
+                C0 = v.C0,
+                C1 = v.C1,
+                Part0 = v.Part0,
+                Part1 = v.Part1
+            })
+            if keepneck then
+                if (v.Part0 == head) and (v.Part1 == torso) then
+                    return
+                elseif (v.Part0 == torso) and (v.Part1 == head) then
+                    return
+                end
+            end
+            if not hatcollide then
+                v:Destroy()
+            end
+        elseif v:IsA("BasePart") then
+            cframes[v] = v.CFrame
+            lastpositions[v] = v.Position
+        end
+    end
+end
+if addPartsOnRun then
+    for i, v in pairs(c:GetDescendants()) do
+        ondes(v)
+    end
+    c.DescendantAdded:Connect(ondes)
+else
+    addPartsOnRun = true
+    for i, v in pairs(c:GetDescendants()) do
+        ondes(v)
+    end
+    addPartsOnRun = false
+    c.DescendantAdded:Connect(ondes)
+end
+
+local cfr, shiftlock, firstperson, xzvel, Yvel = cframes[rootpart], false, false, v3_0, 0
+local camoff = cf(v3_0, camcf.LookVector) - v3(0, 0, (camcf.Position - (cfr.Position + v3_0150)).Magnitude)
+
+if hatcollide then
+    hatcollide = c:FindFirstChildOfClass("BodyColors") or gp(c, "Health", "Script") or gp(c, "Animate", "LocalScript")
+    if torso and rootpart and any then
+        torso:Destroy()
+        rootpart:Destroy()
+        hatcollide:Destroy()
+    end
+    c:BreakJoints()
+end
+local refreshjoints = nil
+refreshjoints = function(part, refreshed)
+    if not part then return end
+    refreshed = refreshed or {}
+    tinsert(refreshed, part)
+    for i, v in pairs(joints) do
+        if v.Part1 and (v.Part0 == part) then
+            cframes[v.Part1] = cframes[part] * v.C0 * v.C1:Inverse()
+            if not tfind(refreshed, v.Part1) then
+                refreshjoints(v.Part1, refreshed)
+            end
+        elseif v.Part0 and (v.Part1 == part) then
+            cframes[v.Part0] = cframes[part] * v.C1 * v.C0:Inverse()
+            if not tfind(refreshed, v.Part0) then
+                refreshjoints(v.Part0, refreshed)
+            end
+        end
+    end
+end
+
+if R15toR6 then
+    local R6parts = { 
+        head = {Name = "Head", Anchored = true},
+        torso = {Name = "Torso", Anchored = true},
+        root = {Name = "HumanoidRootPart", Anchored = true},
+        leftArm = {Name = "Left Arm", Anchored = true},
+        rightArm = {Name = "Right Arm", Anchored = true},
+        leftLeg = {Name = "Left Leg", Anchored = true},
+        rightLeg = {Name = "Right Leg", Anchored = true}
+    }
+    for i, v in pairs(R6parts) do
+        cframes[v] = cfr
+    end
+    tinsert(joints, {
+        Name = "Neck",
+        Part0 = R6parts.torso, Part1 = R6parts.head,
+        C0 = cf(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, -0),
+        C1 = cf(0, -0.5, 0, -1, 0, 0, 0, 0, 1, 0, 1, -0)
+    })
+    tinsert(joints, {
+        Name = "RootJoint" ,
+        Part0 = R6parts.root, Part1 = R6parts.torso,
+        C0 = cf(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, -0),
+        C1 = cf(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, -0)
+    })
+    tinsert(joints, {
+        Name = "Right Shoulder",
+        Part0 = R6parts.torso, Part1 = R6parts.rightArm,
+        C0 = cf(1, 0.5, 0, 0, 0, 1, 0, 1, -0, -1, 0, 0),
+        C1 = cf(-0.5, 0.5, 0, 0, 0, 1, 0, 1, -0, -1, 0, 0)
+    })
+    tinsert(joints, {
+        Name = "Left Shoulder",
+        Part0 = R6parts.torso, Part1 = R6parts.leftArm,
+        C0 = cf(-1, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+        C1 = cf(0.5, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0)
+    })
+    tinsert(joints, {
+        Name = "Right Hip",
+        Part0 = R6parts.torso, Part1 = R6parts.rightLeg,
+        C0 = cf(1, -1, 0, 0, 0, 1, 0, 1, -0, -1, 0, 0),
+        C1 = cf(0.5, 1, 0, 0, 0, 1, 0, 1, -0, -1, 0, 0)
+    })
+    tinsert(joints, {
+        Name = "Left Hip" ,
+        Part0 = R6parts.torso, Part1 = R6parts.leftLeg,
+        C0 = cf(-1, -1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+        C1 = cf(-0.5, 1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0)
+    })
+    tinsert(joints, {
+        Part0 = R6parts.root, Part1 = rootpart,
+        C0 = cf_0, C1 = cf_0
+    })
+    refreshjoints(rootpart)
+    local function getpart(name)
+        for i, _ in pairs(cframes) do
+            if (i.Name == name) and (type(i) ~= "table") then
+                return i
+            end
+        end
+        return nil
+    end
+    local function makejoint(p0, p1, p2)
+        p1, p2 = getpart(p1), getpart(p2)
+        if not (p1 and p2) then return end
+        for i, v in pairs(joints) do
+            if (v.Part0 == p1) and (v.Part1 == p2) then
+                joints[i] = nil
+            elseif (v.Part0 == p2) and (v.Part1 == p1) then
+                joints[i] = nil
+            end
+        end
+        tinsert(joints, {
+            Part0 = p0, Part1 = p1,
+            C0 = cf_0,
+            C1 = cframes[p1]:Inverse() * cframes[p0]
+        })
+    end
+    makejoint(R6parts.head, "Head", "UpperTorso")
+    makejoint(R6parts.leftArm, "LeftUpperArm", "UpperTorso")
+    makejoint(R6parts.rightArm, "RightUpperArm", "UpperTorso")
+    makejoint(R6parts.leftLeg, "LeftUpperLeg", "LowerTorso")
+    makejoint(R6parts.rightLeg, "RightUpperLeg", "LowerTorso")
+    makejoint(R6parts.torso, "LowerTorso", "HumanoidRootPart")
+end
+
+local raycastparams = RaycastParams.new()
+raycastparams.FilterType = Enum.RaycastFilterType.Blacklist
+local rayfilter = {}
+local characters = {}
+local function refreshrayfilter()
+    for i, v in pairs(rayfilter) do
+        if not tfind(characters, v) then
+            rayfilter[i] = nil
+        end
+    end
+    for i, v in pairs(characters) do
+        if not tfind(rayfilter, v) then
+            tinsert(rayfilter, v)
+        end
+    end
+    raycastparams.FilterDescendantsInstances = rayfilter
+end
+local function oncharacter(plr, c)
+    characters[plr] = c
+    refreshrayfilter()
+end
+local function onplayer(v)
+    oncharacter(v, v.Character)
+    v.CharacterAdded:Connect(function(c)
+        oncharacter(v, c)
+    end)
+end
+for i, v in pairs(plrs:GetPlayers()) do onplayer(v) end
+plrs.PlayerAdded:Connect(onplayer)
+plrs.PlayerRemoving:Connect(function(v)
+    oncharacter(v, nil)
+end)
+
+local mradN05 = math.rad(-0.5)
+local enumMLC = Enum.MouseBehavior.LockCenter
+local enumMB2 = Enum.UserInputType.MouseButton2
+local enumMLCP = Enum.MouseBehavior.LockCurrentPosition
+local enumMD = Enum.MouseBehavior.Default
+local enumMW = Enum.UserInputType.MouseWheel
+
+local mode, modes = "default", {default = {}}
+local function addmode(key, mode)
+    if (type(key) ~= "string") or (type(mode) ~= "table") then
+        return
+    end
+    if key == "default" then
+        modes.default = mode
+    elseif #key == 1 then
+        key = Enum.KeyCode[key:sub(1, 1):upper()]
+        modes[key] = mode
+    end
+end
+
+local keyW, keyA, keyS, keyD, keySpace, keyShift = Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D, Enum.KeyCode.Space, Enum.KeyCode.LeftShift
+local movementkeys = {
+	[keyW] = false,
+	[keyA] = false,
+	[keyS] = false,
+	[keyD] = false,
+	[keySpace] = false
+}
+uis.InputBegan:Connect(function(a)
+	if gs.MenuIsOpen or uis:GetFocusedTextBox() then
+		return
+	end
+    a = a.KeyCode
+    if movementkeys[a] == false then
+        movementkeys[a] = true
+    elseif a == keyShift then
+        shiftlock = allowshiftlock and not shiftlock
+    elseif modes[a] then
+        if mode == a then
+            mode = "default"
+        else
+            mode = a
+        end
+    end
+end)
+uis.InputEnded:Connect(function(a)
+	if movementkeys[a.KeyCode] then
+		movementkeys[a.KeyCode] = false
+	end
+end)
+uis.InputChanged:Connect(function(a, b)
+	if (not b) and (a.UserInputType == enumMW) then
+		camoff = camoff + a.Position * v3(0, 0, 0.75 - camoff.Z / 4)
+		if camoff.Z > 0 then
+			camoff = camoff - camoff.Position
+		end
+		firstperson = camoff.Z == 0
+	end
+end)
+
+local healthHideTime, healthHidden = sine + 3, false
+local lostPart = nil
+
+local v3_xz, v3_net = v3(10, 0, 10), v3(0, 25.01, 0)
+local function getNetlessVelocity(realPartVelocity)
+    --if true then return v3_0 end
+    --if true then return realPartVelocity end
+    if realPartVelocity.Magnitude > 25.1 then
+        realPartVelocity = realPartVelocity.Unit * 25.1
+    end
+    return realPartVelocity * v3_xz + v3_net
+end
+
+local function getjoint(name)
+    for i, v in pairs(joints) do
+        if v.Name == name then
+            return v
+        end
+    end
+    return {C0 = cf_0, C1 = cf_0}
+end
+
+local mouse, flingcf, flingvel, flingid, currentflingpart = lp:GetMouse(), nil, nil, 0, nil
+local function fling(target, duration, rotVelocity)
+    currentflingpart = nil
+    for i, v in pairs(flingparts) do
+        if v and (not v.Anchored) and v:IsDescendantOf(ws) and (v.ReceiveAge == 0) then
+            currentflingpart = v
+            break
+        end
+    end
+    if not currentflingpart then 
+        return twait() and false
+    end
+    if typeof(target) == "Instance" then
+        if target:IsA("BasePart") then
+            target = target.Position
+        elseif target:IsA("Model") then
+            target = gp(target, "HumanoidRootPart", "BasePart") or gp(target, "Torso", "BasePart") or gp(target, "UpperTorso", "BasePart") or target:FindFirstChildWhichIsA("BasePart")
+            if target then
+                target = target.Position
+            else
+                return twait() and false
+            end
+        elseif target:IsA("Humanoid") then
+            target = target.Parent
+            if not (target and target:IsA("Model")) then
+                return twait() and false
+            end
+            target = gp(target, "HumanoidRootPart", "BasePart") or gp(target, "Torso", "BasePart") or gp(target, "UpperTorso", "BasePart") or target:FindFirstChildWhichIsA("BasePart")
+            if target then
+                target = target.Position
+            else
+                return twait() and false
+            end
+        else
+            return twait() and false
+        end
+    elseif typeof(target) == "CFrame" then
+        target = target.Position
+    elseif typeof(target) ~= "Vector3" then
+        target = mouse.Hit
+        if target then
+            target = target.Position
+        else
+            return twait() and false
+        end
+    end
+    if type(duration) ~= "number" then
+        duration = tonumber(duration) or 0.5
+    end
+    if typeof(rotVelocity) ~= "Vector3" then
+        rotVelocity = v3(20000, 20000, 20000)
+    end
+    if (type(maxflingtrsp) == "number") and (currentflingpart.Transparency > maxflingtrsp) then
+        currentflingpart.Transparency = maxflingtrsp
+    end
+    flingcf = cf(target)
+    flingvel = rotVelocity
+    flingid = flingid + 1
+    local thisfling = flingid
+    twait(duration)
+    if flingid == thisfling then
+        flingcf = nil
+    end
+    return true
+end
+
+local function predictionfling(target, duration, rotVelocity)
+    if typeof(target) ~= "Instance" then 
+        target = mouse.Target
+        if not target then
+            return twait() and false
+        end
+    end
+    if target:IsA("Humanoid") or target:IsA("BasePart") then 
+        target = target.Parent 
+    end
+    if target:IsA("Accessory") then
+        target = target.Parent
+    end
+    if (not target:IsA("Model")) or (target == c) then
+        return twait() and false
+    end
+    target = gp(target, "HumanoidRootPart", "BasePart") or gp(target, "Torso", "BasePart") or gp(target, "UpperTorso", "BasePart")
+    if not (target and target:IsDescendantOf(ws)) then
+        return twait() and false
+    end
+    local stopTime = sine + (tonumber(duration) or 1)
+    local con = nil
+    con = heartbeat:Connect(function(deltaTime)
+        if (sine > stopTime) or not (target and target:IsDescendantOf(ws)) then
+            return con:Disconnect()
+        end
+        fling(target.Position + target.Velocity * (sin(sine * 15) + 1), 0, rotVelocity)
+    end)
+    twait()
+    return true
+end
+
+if clickfling == 0 then
+    mouse.Button1Down:Connect(fling)
+elseif clickfling == 1 then
+    mouse.Button1Down:Connect(predictionfling)
+elseif clickfling == 2 then
+    mouse.Button1Down:Connect(function()
+        if not predictionfling() then fling() end
+    end)
+end
+
+if hideHealthHide then
+    local con = nil
+    con = renderstepped:Connect(function()
+        if not (c and head:IsDescendantOf(ws)) then
+            return con:Disconnect()
+        end
+        if (not head.Anchored) and (head.ReceiveAge == 0) then
+            head.CFrame = cframes[head]
+        end
+    end)
+end
+
+local noYvelTime, deltaTime, lastsine, pose, con = 1, 0, sine, nil, nil
+local function mainFunction()
+    if not c then 
+        uis.MouseBehavior = enumMD
+        onnewcamera()
+        local c = lp.Character
+        if c then
+            cam.CameraSubject = c:FindFirstChildOfClass("Humanoid")
+        end
+        return con and con:Disconnect() 
+    end
+    
+    sine = osclock()
+    local delta = sine - lastsine
+    deltaTime = clamp(delta * 10, 0, 1)
+    lastsine = sine
+    
+    if uis:IsMouseButtonPressed(enumMB2) or shiftlock or firstperson then
+	    if shiftlock then
+	        if allowshiftlock then
+	            uis.MouseBehavior = enumMLC
+	        else
+	            shiftlock = false
+	        end
+	    elseif firstperson then
+	        uis.MouseBehavior = enumMLC
+	    else
+		    uis.MouseBehavior = enumMLCP
+		end
+		local rotation = uis:GetMouseDelta() * mradN05
+		camoff = cf(camoff.Position, camoff.Position + camoff.LookVector) * angles(rotation.Y, rotation.X, 0)
+	else
+		uis.MouseBehavior = enumMD
+	end
+    
+    local raycastresult, onground = ws:Raycast(cfr.Position, v3_010 * ws.FallenPartsDestroyHeight - cfr.Position, raycastparams), nil
+	if raycastresult then
+	    onground = (cfr.Y - raycastresult.Position.Y) < 3.01
+		if onground then
+		    Yvel = 0
+		    cfr = cfr + v3(0, raycastresult.Position.Y + 3 - cfr.Y, 0) * clamp(delta * 20, 0, 1)
+			if movementkeys[keySpace] then
+			    Yvel = jumpPower
+			end
+	    else
+			Yvel = Yvel - gravity * delta
+			if cfr.Y + Yvel * delta < raycastresult.Position.Y then
+			    Yvel = 0
+			    cfr = cfr + v3_010 * (raycastresult.Position.Y + 3 - cfr.Y)
+			end
+		end
+	else
+	    Yvel = 0
+	    onground = false
+	end
+	xzvel = v3_0
+	if movementkeys[keyW] then
+		xzvel = xzvel + (camoff.LookVector * v3_101).Unit
+	end
+	if movementkeys[keyS] then
+		xzvel = xzvel - (camoff.LookVector * v3_101).Unit
+	end
+	if movementkeys[keyA] then
+		xzvel = xzvel - (camoff.RightVector * v3_101).Unit
+	end
+	if movementkeys[keyD] then
+		xzvel = xzvel + (camoff.RightVector * v3_101).Unit
+	end
+	if xzvel.Magnitude > 0 then
+	    xzvel = xzvel.Unit * walkSpeed
+    	cfr = cfr:Lerp(cf(cfr.Position, cfr.Position + xzvel), deltaTime)
+	end
+    if shiftlock or firstperson then
+	    cfr = cf(cfr.Position, cfr.Position + camoff.LookVector * v3_101)
+    end
+	cfr = cfr + (xzvel + v3_010 * Yvel) * delta
+	
+	camcf = cf(cfr.Position, cfr.Position + camoff.LookVector) + (camoff.LookVector * camoff.Z) + v3_0150
+	if shiftlock and not firstperson then
+	    camcf = camcf + camcf.RightVector * 1.75
+	end
+	cam.CFrame = camcf
+	
+    if onground then
+        if xzvel == v3_0 then
+            pose = "idle"
+        else
+            pose = "walk"
+        end
+    elseif Yvel > 0 then
+        pose = "jump"
+    else
+        pose = "fall"
+    end
+    local lerpfunc = modes[mode][pose]
+    if type(lerpfunc) ~= "function" then
+        lerpfunc = modes.default[pose]
+    end
+    if type(lerpfunc) == "function" then
+        lerpfunc()
+    end
+    
+    cframes[rootpart] = cfr
+    refreshjoints(rootpart)
+    
+    if abs(Yvel) > 1 then
+	    noYvelTime = 0
+	else
+	    noYvelTime = clamp(noYvelTime + delta, 0, 1)
+	    xzvel = xzvel*(1-noYvelTime)
+	end
+    
+    if sine > healthHideTime then
+        healthHidden = not healthHidden
+        if healthHidden then
+            healthHideTime = healthHideTime + 0.1
+        else
+            healthHideTime = healthHideTime + 3
+        end
+    end
+    
+    local idleoff = delta / 5
+    local x, y, z = sin((sine - 0.01875) * 32) * idleoff, sin(sine * 32) * idleoff, sin((sine + 0.0375) * 32) * idleoff
+    idleoff = angles(x, y, z) + v3(x, y, z)
+    
+    for i, v in pairs(cframes) do
+        if (not i.Anchored) and i:IsDescendantOf(ws) then
+            if i.ReceiveAge == 0 then
+                if (i == currentflingpart) and flingcf then
+                    flingcf = flingcf * angles(0, flingvel.Unit.Y * -deltaTime, 0)
+                    v = flingcf
+                    i.RotVelocity = flingvel
+                else
+                    i.RotVelocity = v3_0
+                end
+                local vel = (v.Position - lastpositions[i]) / delta
+                lastpositions[i] = v.Position
+                if vel.Magnitude < 0.15 then
+                    v = v * idleoff
+                end
+                if (i == reclaim) and lostPart then
+                    v = lostPart.CFrame
+                    lostPart = nil
+                    i.Velocity = v3_0
+                elseif healthHidden and (i == healthHide) then
+                    v = v + v3_h
+                    i.Velocity = getNetlessVelocity(v3_0)
+                else
+                    i.Velocity = getNetlessVelocity(vel*noYvelTime + xzvel)
+                end
+                if novoid and (v.Y < novoid) then
+                    v = v + v3_010 * (novoid - v.Y)
+                end
+                i.CFrame = v
+            else
+                lastpositions[i] = i.Position
+                if reclaim and (i ~= reclaim) then
+                    lostPart = i
+                end
+            end
+        end
+    end
+end
+
+con = heartbeat:Connect(mainFunction)
+mainFunction()
+
+local RootJoint = getjoint("RootJoint")
+local RightShoulder = getjoint("Right Shoulder")
+local LeftShoulder = getjoint("Left Shoulder")
+local RightHip = getjoint("Right Hip")
+local LeftHip = getjoint("Left Hip")
+local Neck = getjoint("Neck")
+
+--[[ --uncomment if you want to use the following functions
+
+local legcfR, legcfL, raydir = cf(1, -1, 0), cf(-1, -1, 0), v3(0, -2, 0)
+local function raycastlegs() --this returns 2 values: right leg raycast offset, left leg raycast offset
+    local rY, lY = ws:Raycast((cfr * legcfR).Position, raydir, raycastparams), ws:Raycast((cfr * legcfL).Position, raydir, raycastparams)
+    return rY and (rY.Position.Y - (cfr.Y-3)) or 0, lY and (lY.Position.Y - (cfr.Y-3)) or 0
+end
+
+local function velbycfrvec() --this returns 2 values: forward/backwards movement (from -1 to 1), right/left movement (from -1 to 1)
+    local fw, rt = cfr.LookVector * xzvel / walkSpeed, cfr.RightVector * xzvel / walkSpeed
+    return fw.X + fw.Z, rt.X + rt.Z
+end
+
+]]
+
+addmode("default", {
+    idle = function()
+        --idle animation lerps here
+    end,
+    walk = function()
+        --walking animation lerps here
+    end,
+    jump = function()
+        --jumping animation lerps here
+    end,
+    fall = function()
+        --falling animation lerps here
+    end
+})
+
+addmode("e", {
+    idle = function()
+        --idle animation lerps for this mode here 
+    end
+})
+Notification.Notify("            FireVR", "Successfully reanimated your localplayer. Waiting 5 seconds...", "rbxasset://9616518668", {
+    Duration = 5,       
+    Main = {
+        Rounding = true,
+    }
+});
+
+
+wait(5)
+print("███████╗██╗██████╗ ███████╗██╗   ██╗██████╗     ██████╗ ██╗   ██╗    ███████╗██╗██████╗  ██████╗ ██╗  ██╗")
+print("██╔════╝██║██╔══██╗██╔════╝██║   ██║██╔══██╗    ██╔══██╗╚██╗ ██╔╝    ██╔════╝██║██╔══██╗██╔═══██╗╚██╗██╔╝")
+print("█████╗  ██║██████╔╝█████╗  ██║   ██║██████╔╝    ██████╔╝ ╚████╔╝     █████╗  ██║██████╔╝██║   ██║ ╚███╔╝ ")
+print("██╔══╝  ██║██╔══██╗██╔══╝  ╚██╗ ██╔╝██╔══██╗    ██╔══██╗  ╚██╔╝      ██╔══╝  ██║██╔══██╗██║   ██║ ██╔██╗ ")
+print("██║     ██║██║  ██║███████╗ ╚████╔╝ ██║  ██║    ██████╔╝   ██║       ██║     ██║██║  ██║╚██████╔╝██╔╝ ██╗")
+print("╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝  ╚═══╝  ╚═╝  ╚═╝    ╚═════╝    ╚═╝       ╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝")
+print("You are currently running FireVr build: v1.2 !")
+print("Changelogs:")
+print("V1.0 Added more stable netless")
+print("V1.1 Added working net")
+print("V1.2 Lagging fixed (kinda)")
+Notification.Notify("            FireVR", "Thanks for using FireVR", "rbxassetid://9616518668", {
+    Duration = 5,       
+    Main = {
+        Rounding = true,
+    }
+});
+
+game:GetService("RunService").Heartbeat:connect(
+    function()
+        if _G.R1down then
+            workspace.CurrentCamera.CFrame =
+                workspace.CurrentCamera.CFrame:Lerp(
+                workspace.CurrentCamera.CoordinateFrame +
+                    (_G.HandR * CFrame.Angles(0, 0, math.rad(180))).LookVector * workspace.CurrentCamera.HeadScale / 2,
+                0.5
+            )
+        end
+    end
+)
+local g = game:GetService("Players").LocalPlayer
+local j = g.Character
+local k = game:GetService("VRService")
+local l = game:GetService("UserInputService")
+local m = workspace.CurrentCamera
+local n = game:GetService("Chat")
+local o = "Hat1"
+local p = "Kate Hair"
+local r = "LUAhEAD"
+local s = j.HumanoidRootPart
+s.Transparency = 0
+local t = {
+    ["Lazgewehr-58"] = true,
+    ["MeshPartAccessory"] = true,
+    ["Meshes/SniperAccessory"] = true,
+    ["AR-L 10 [Back]"] = true,
+    ["ThorHammer"] = true,
+    ["BackGun"] = true,
+    ["Black Type-37 Pulse Rifle"] = true,
+    ["Juggernaut's Chaingun"] = true,
+    ["Meshes/M4A1Accessory"] = true,
+    ["Nagamaki"] = true,
+    ["WDW_FoamFinger"] = true,
+    ["MARTILLO"] = true,
+    ["StopSign"] = true,
+    ["Meshes/1911RightAccessoryy"] = true
+}
+
+for e, f in pairs(j.Humanoid:GetAccessories()) do
+    if f:FindFirstChild("Handle") then
+        if t[f.Name] then
+            _G.WeaponHat = f.Name
+        elseif f.Handle:FindFirstChild("BodyBackAttachment") and f.name ~= _G.spinningitem then
+            _G.BackItem = f.Name
+        end
+    end
+end
+if _G.WeaponHat == "Gerbil" then
+plr:kick("Whats the matter on using the right hats?")
+end
+m.CFrame = CFrame.new(m.CFrame.Position)
+m.CameraType = "Scriptable"
+m.HeadScale = _G.headscale
+local o = "Hat1"
+local p = "Kate Hair"
+
+local r = "LUAhEAD"
+for e, f in pairs(j:GetDescendants()) do
+    if f:IsA("BasePart") and f.Name ~= "HumanoidRootPart" and f.Name ~= "Torso" then
+        game:GetService("RunService").Heartbeat:connect(
+            function()
+                f.Velocity = Vector3.new(-30, 0, 0)
+            end
+        )
+    end
+end
+local u = {}
+local v = false
+local w
+local x
+local y
+local z
+local A
+local B
+_G.HandR = CFrame.new(0, 0, 0)
+_G.R1down = false
+for C, D in pairs(j:GetDescendants()) do
+    if D:IsA("Accessory") then
+        if D.Name == o or D.Name == p or D.Name == r then
+            for E, F in pairs(D["Handle"]:GetDescendants()) do
+                if F:IsA("SpecialMesh") then
+                    F:Destroy()
+                end
+            end
+        elseif D.Name ~= _G.WeaponHat and D.Name ~= _G.BackItem then
+            D.Handle.Transparency = 1
+            table.insert(u, D)
+        end
+    end
+end
+for e, f in pairs(j.Humanoid:GetAccessories()) do
+    if f.Handle ~= nil then
+        local G = f.Handle
+        if f.Name == o and not x then
+            x = f
+        elseif f.Name == p and not w then
+            w = f
+        elseif f.Name == r then
+            z = f
+        elseif f.Name == _G.BackItem then
+            y = f
+        elseif f.Name == q then
+            B = f
+        elseif f.Name == _G.WeaponHat then
+            A = f
+            if f.Name == "MeshPartAccessory" and G.Size.X == 4 and G.Size.Y == 4 and G.Size.Z == 1 then
+                A.Name = "Sword"
+                A = f
+            end
+        end
+    end
+end
+game:GetService("StarterGui"):SetCore("VRLaserPointerMode", 0)
+game:GetService("StarterGui"):SetCore("VREnableControllerModels", false)
+local function H(I, J)
+    local K = Instance.new("Part", workspace)
+    K.Size = I
+    K.Transparency = 1
+    K.CanCollide = false
+    K.Anchored = true
+    K.Name = J
+    return K
+end
+local L = H(x.Handle.Size, "moveRH")
+local M = H(w.Handle.Size, "moveLH")
+local N = H(Vector3.new(1, 1, 1), "moveH")
+local O = H(x.Handle.Size, "moveW")
+local P = H(z.Handle.Size, "moveT")
+local Q = H(Vector3.new(1, 1, 1), "moveB")
+local R = H(Vector3.new(1, 1, 1), "GunThing")
+local K = H(Vector3.new(1, 1, 1), "Part")
+local S = Instance.new("SelectionBox", L)
+S.Adornee = L
+S.LineThickness = 0.02
+local T = Instance.new("SelectionBox", L)
+T.Adornee = M
+T.LineThickness = 0.02
+local U = Instance.new("Attachment", M)
+U.Position = Vector3.new(0, M.Size.Y / 2, 1)
+U.Orientation = Vector3.new(0, -90, 0)
+local V = Instance.new("Attachment", M)
+V.Position = Vector3.new(0, -M.Size.Y / 2, 1)
+V.Orientation = Vector3.new(0, -90, 0)
+local W = Instance.new("Trail", M)
+W.Enabled = false
+W.Color =
+    ColorSequence.new {
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(85, 85, 85))
+}
+W.Transparency =
+    NumberSequence.new {
+    NumberSequenceKeypoint.new(0, 0),
+    NumberSequenceKeypoint.new(0.536, 1),
+    NumberSequenceKeypoint.new(1, 1)
+}
+W.Attachment0 = U
+W.Attachment1 = V
+local X = Instance.new("Attachment", L)
+X.Position = Vector3.new(0, L.Size.Y / 2, 1)
+X.Orientation = Vector3.new(0, -90, 0)
+local Y = Instance.new("Attachment", L)
+Y.Position = Vector3.new(0, -M.Size.Y / 2, 1)
+Y.Orientation = Vector3.new(0, -90, 0)
+local Z = Instance.new("Trail", L)
+Z.Enabled = false
+Z.Color =
+    ColorSequence.new {
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(85, 85, 85))
+}
+Z.Transparency =
+    NumberSequence.new {
+    NumberSequenceKeypoint.new(0, 0),
+    NumberSequenceKeypoint.new(0.536, 1),
+    NumberSequenceKeypoint.new(1, 1)
+}
+Z.Attachment0 = X
+Z.Attachment1 = Y
+local _ = Instance.new("Attachment", O)
+_.Position = Vector3.new(0, 0, 0)
+_.Orientation = Vector3.new(0, -90, 0)
+local a0 = Instance.new("Attachment", K)
+_.Position = Vector3.new(0, 0, 0)
+a0.Orientation = Vector3.new(0, -90, 0)
+local a1 = Instance.new("Beam", O)
+a1.Enabled = false
+a1.Color =
+    ColorSequence.new {
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(85, 85, 85))
+}
+a1.Transparency = NumberSequence.new {NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)}
+a1.FaceCamera = true
+a1.Attachment0 = _
+a1.Attachment1 = a0
+j["Left Leg"]:Destroy()
+j["Right Leg"]:Destroy()
+j["Left Arm"]:Destroy()
+j["Right Arm"]:Destroy()
+local function a2(a3, a4)
+    local a2 = Instance.new("AlignPosition", a3)
+    a2.Parent.CanCollide = false
+    a2.ApplyAtCenterOfMass = true
+    a2.MaxForce = 9e9
+    a2.MaxVelocity = 9e9
+    a2.ReactionForceEnabled = false
+    a2.Responsiveness = 9e9
+    a2.RigidityEnabled = false
+    local a5 = Instance.new("Attachment", a3)
+    local a6 = Instance.new("Attachment", a4)
+    a6.CFrame = a6.CFrame
+    a2.Attachment0 = a5
+    a2.Attachment1 = a6
+end
+local a7 = Instance.new("Sound", O)
+a7.SoundId = "rbxassetid://168143115"
+a7.Volume = 4
+local a8
+local a9 = N.Position
+K.Position = N.Position
+local function aa()
+    a7:Play()
+    local ab = R.Position
+    local ac = R.CFrame.LookVector * 400
+    local ad = RaycastParams.new()
+    ad.FilterDescendantsInstances = {A.Handle, M, L, x.Handle, w.Handle}
+    ad.FilterType = Enum.RaycastFilterType.Blacklist
+    a8 = workspace:Raycast(ab, ac, ad)
+    if a8 then
+        local ae = a8.Instance
+        a0.WorldPosition = a8.Position
+        a1.Enabled = true
+        a9 = a8.Position
+        K.Position = a9 + Vector3.new(0, 1, 0)
+    end
+    wait(.1)
+    a1.Enabled = false
+end
+l.InputChanged:connect(
+    function(af)
+        if af.KeyCode == _G.MoveCamButton then
+            if af.Position.Z > 0.9 then
+                _G.R1down = true
+                Z.Enabled = true
+                W.Enabled = true
+            else
+                _G.R1down = false
+                Z.Enabled = false
+                W.Enabled = false
+            end
+        end
+        if af.KeyCode == Enum.KeyCode.ButtonR2 and v == true then
+            if af.Position.Z > 0.9 then
+                aa()
+            end
+        end
+        if af.KeyCode == _G.WeaponButton then
+            if af.Position.Z > 0.9 then
+                if v == true then
+                    v = false
+                elseif v == false then
+                    v = true
+                end
+            end
+        end
+    end
+)
+l.InputBegan:connect(
+    function(af)
+        if af.KeyCode == _G.MoveCamButton then
+            _G.R1down = true
+            Z.Enabled = true
+            W.Enabled = true
+        end
+        if af.KeyCode == _G.WeaponButton then
+            if v == true then
+                v = false
+            elseif v == false then
+                v = true
+            end
+        end
+    end
+)
+l.InputEnded:connect(
+    function(af)
+        if af.KeyCode == _G.MoveCamButton then
+            Z.Enabled = false
+            W.Enabled = false
+        end
+    end
+)
+game.Players.PlayerAdded:connect(
+    function(f)
+        f.Chatted:connect(
+            function(ag)
+                n:Chat(g.Character.Head, ag)
+            end
+        )
+    end
+)
+for e, f in pairs(game.Players:GetPlayers()) do
+    f.Chatted:connect(
+        function(ag)
+            n:Chat(f.Character.Head, ag)
+        end
+    )
+end
+local function ah(a3, a4)
+    local a2 = Instance.new("AlignPosition", a3)
+    a2.Parent.CanCollide = false
+    a2.ApplyAtCenterOfMass = true
+    a2.MaxForce = 9e9
+    a2.MaxVelocity = 9e9
+    a2.ReactionForceEnabled = false
+    a2.Responsiveness = 9e9
+    a2.RigidityEnabled = false
+    local ai = Instance.new("AlignOrientation", a3)
+    ai.MaxAngularVelocity = 9e9
+    ai.MaxTorque = 9e9
+    ai.PrimaryAxisOnly = false
+    ai.ReactionTorqueEnabled = false
+    ai.Responsiveness = 9e9
+    ai.RigidityEnabled = false
+    local a5 = Instance.new("Attachment", a3)
+    local a6 = Instance.new("Attachment", a4)
+    a6.CFrame = a6.CFrame
+    a2.Attachment0 = a5
+    a2.Attachment1 = a6
+    ai.Attachment0 = a5
+    ai.Attachment1 = a6
+end
+l.UserCFrameChanged:connect(
+    function(aj, ak)
+        if aj == Enum.UserCFrame.Head then
+            N.CFrame = m.CFrame * CFrame.new(ak.p * (m.HeadScale - 1)) * ak
+        elseif aj == Enum.UserCFrame.LeftHand then
+            L.CFrame = m.CFrame * CFrame.new(ak.p * (m.HeadScale - 1)) * ak
+        elseif aj == Enum.UserCFrame.RightHand then
+            M.CFrame = m.CFrame * CFrame.new(ak.p * (m.HeadScale - 1)) * ak
+            _G.HandR = M.CFrame
+        end
+    end
+)
+spawn(
+    function()
+        for al = 1, #u do
+            local am = u[al]
+            am.Handle:BreakJoints()
+            ah(am.Handle, N)
+        end
+        x.Handle:BreakJoints()
+        w.Handle:BreakJoints()
+        z.Handle:BreakJoints()
+        if A.Name ~= "MeshPartAccessory" then
+            A.Handle:BreakJoints()
+            ah(A.Handle, O)
+        end
+        ah(x.Handle, M)
+        ah(w.Handle, L)
+        ah(z.Handle, P)
+        if _G.BackItem ~= "" then
+            y.Handle:BreakJoints()
+            ah(y.Handle, Q)
+        end
+        B.Handle:BreakJoints()
+        B.Handle.Transparency = 0
+    end
+)
+local an = 1
+game:GetService("RunService").Heartbeat:connect(
+    function()
+        an = an + 0.4
+        P.CFrame = N.CFrame * CFrame.new(0, -2.3, 0) * CFrame.Angles(math.rad(90), math.rad(0), math.rad(0))
+        if _G.BackItem ~= "" or _G.BackItem ~= nil then
+            Q.CFrame = P.CFrame * CFrame.new(0, 0.5, 0) * CFrame.Angles(math.rad(90), math.rad(180), math.rad(180))
+        end
+        local ao = P.Position
+        local ap = Vector3.new(0, -300, 0)
+        local aq = RaycastParams.new()
+        aq.FilterDescendantsInstances = {game.Players.LocalPlayer.Character, K}
+        aq.FilterType = Enum.RaycastFilterType.Blacklist
+        local ar = workspace:Raycast(ao, ap, aq)
+        if ar then
+            B.Handle.CFrame =
+                CFrame.new(ar.Position) * CFrame.new(-1.5, 0, 0) *
+                CFrame.Angles(math.rad(90), math.rad(0), math.rad(an))
+        else
+            B.Handle.CFrame = P.CFrame * CFrame.new(0, 0, -5) * CFrame.Angles(math.rad(90), math.rad(0), math.rad(an))
+        end
+    end
+)
+game:GetService("RunService").Heartbeat:connect(
+    function()
+        if v == true then
+            if _G.WeaponHat == "AR-L 10 [Back]" then
+                R.CFrame = M.CFrame * CFrame.new(-1.6, 0.7, 0)
+                O.CFrame = M.CFrame * CFrame.Angles(0, math.rad(270), 0) * CFrame.new(-1.6, 0.7, 0)
+            elseif _G.WeaponHat == "Meshes/SniperAccessory" then
+                R.CFrame = M.CFrame * CFrame.new(-0.7, 2.2, 0)
+                O.CFrame = M.CFrame * CFrame.Angles(0, math.rad(270), math.rad(52)) * CFrame.new(-0.7, 2.2, 0)
+            elseif _G.WeaponHat == "Meshes/1911RightAccessory" then
+                R.CFrame = M.CFrame * CFrame.new(0, .65, -1.8)
+                O.CFrame = M.CFrame * CFrame.new(0, .65, -1.6) * CFrame.Angles(math.rad(0), math.rad(180), math.rad(0))
+            elseif A.Name == "Sword" and _G.WeaponHat == "MeshPartAccessory" then
+                O.CFrame = M.CFrame * CFrame.new(-0.4, 3, 0) * CFrame.Angles(0, math.rad(270), math.rad(-135))
+            elseif _G.WeaponHat == "GoldAxe" then
+                K.CFrame = M.CFrame * CFrame.new(0, 3, -1)
+                O.CFrame = M.CFrame * CFrame.Angles(0, math.rad(270), math.rad(45)) * CFrame.new(1, 2.2, 0)
+            elseif _G.WeaponHat == "Lazgewehr-58" then
+                R.CFrame = M.CFrame * CFrame.new(0, 0.8, -1.2)
+                O.CFrame = M.CFrame * CFrame.new(0, 0.8, -1.2) * CFrame.Angles(math.rad(0), math.rad(450), math.rad(45))
+            elseif _G.WeaponHat == "ThorHammer" then
+                O.CFrame =
+                    M.CFrame * CFrame.new(-0.7, 0.9, -0.25) * CFrame.Angles(math.rad(0), math.rad(155), math.rad(20))
+            elseif _G.WeaponHat == "Nagamaki" then
+                K.CFrame = M.CFrame * CFrame.new(0, 4.5, -0.5) * CFrame.Angles(0, math.rad(450), math.rad(142))
+                O.CFrame = M.CFrame * CFrame.new(0, 2.3, -0.5) * CFrame.Angles(0, math.rad(450), math.rad(142))
+            elseif _G.WeaponHat == "WDW_FoamFinger" then
+                K.CFrame = M.CFrame * CFrame.new(0, 1, -0.3)
+                O.CFrame = M.CFrame * CFrame.new(0, 1.5, -0.3) * CFrame.Angles(0, math.rad(360), math.rad(0))
+            elseif _G.WeaponHat == "Juggernaut's Chaingun" then
+                R.CFrame = M.CFrame * CFrame.new(0, 0.8, -2)
+                O.CFrame = M.CFrame * CFrame.new(0, 0.8, -2) * CFrame.Angles(0, math.rad(0), math.rad(0))
+            elseif _G.WeaponHat == "BackGun" then
+                R.CFrame = M.CFrame * CFrame.new(0, 0.7, -0.8)
+                O.CFrame = M.CFrame * CFrame.new(0, 0.7, -0.8) * CFrame.Angles(0, math.rad(270), math.rad(-45))
+            elseif _G.WeaponHat == "Meshes/M4A1Accessory" then
+                R.CFrame = M.CFrame * CFrame.new(0, 0.8, -1)
+                O.CFrame = M.CFrame * CFrame.new(0, 0.8, -1) * CFrame.Angles(0, math.rad(270), math.rad(20))
+            elseif _G.WeaponHat == "MARTILLO" then
+                K.CFrame = M.CFrame * CFrame.new(0, 5, -2) * CFrame.Angles(math.rad(0), math.rad(0), math.rad(0))
+                O.CFrame = M.CFrame * CFrame.new(0, 2.5, -1.0) * CFrame.Angles(math.rad(0), math.rad(90), math.rad(0))
+            elseif _G.WeaponHat == "StopSign" then
+                K.CFrame = M.CFrame * CFrame.new(0, 4.5, -0.8)
+                O.CFrame = M.CFrame * CFrame.Angles(math.rad(0), math.rad(0), math.rad(0)) * CFrame.new(0, 2.5, -0.8)
+            end
+        else
+            O.CFrame = M.CFrame * CFrame.new(0, -50, 0)
+            K.CFrame = O.CFrame
+        end
+    end
+)
+if _G.Fling == true then
+    spawn(
+        function()
+            local s = game.Players.LocalPlayer.Character.HumanoidRootPart or game.Players.LocalPlayer.Character.Torso
+            game:GetService("RunService").Stepped:connect(
+                function()
+                    for as, f in pairs(game.Players.LocalPlayer.Character:children()) do
+                        pcall(
+                            function()
+                                if f:IsA("BasePart") and not f:IsA("Accessory") then
+                                    f.CanCollide = false
+                                end
+                            end
+                        )
+                    end
+                end
+            )
+            a2(s, K)
+            local at = Instance.new("BodyThrust", s)
+            at.Force = Vector3.new(999999 * 10, 0, 999999 * 10)
+            at.Location = s.Position
+        end
+    )
+end
+wait(5)
+Notification.Notify("            FireVR", "Fully loaded FireVR. Enjoy exploiting in vr!", "rbxassetid://9616518668", {
+    Duration = 5,       
+    Main = {
+        Rounding = true,
+    }
+});
